@@ -1,0 +1,1155 @@
+---
+title: "Board Games Data Analysis"
+author: "Jalen Wong"
+date: "11/10/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Loading Packages
+
+```{r}
+library(readr)
+library(tidyverse)
+library(patchwork)
+```
+
+# Reading CSV File
+
+```{r}
+board_games <- read.csv2("bgg_dataset.csv", sep =";")
+head(board_games, 3)
+```
+
+# Data Set Background
+
+This dataset contains data collected on board games from the BoardGameGeek (BGG) website in February 2021. BGG is the largest online collection of board game data which consists of data on more than 100,000 total games (ranked and unranked).
+
+The voluntary online community contributes to the site with reviews, ratings, images, videos, session reports and live discussion forums on the expanding database of board games.
+
+This data set contains all ranked games (~20,000) as of the date of collection from the BGG database. Unranked games are ignored as they have not been rated by enough BGG users (a game should receive at least 30 votes to be eligible for ranking).
+
+There are a total of 14 variables: 
+ - ID (BoardGamesGeek ID), 
+ - Name
+ - Year Published
+ - Min Players (Min suggested players)
+ - Max Players (Max suggested players)
+ - Play Time (Average play time suggest by game creator)
+ - Min Age (Age rating)
+ - Users Rated (Amount of users who reviewed the game)
+ - Rating Average
+ - BGG Rank (BoardGamesGeek ranking)
+ - Complexity Average (Complexity rating)
+ - Owned Users (Amount of users who said they own the game)
+ - Mechanics
+ - Domains (Game subgenre)
+
+In the past, my family and I would try to play a board game every two weeks, and this would be considered as one of our "family times". So when growing up, these were some of my most cherished moments. After every game, we would always discuss how it went and occasionally give it a rating. This would determine if we would play it again in the future. 
+
+# Tasks
+
+1. What is the `Average_Rating` for the top 4 most frequently used `Mechanics` and `Domains`? 
+
+2. What commonalities do the most successful (top 100) board games have?
+
+3. Create a line that can predict a board game `Average_Rating` based on its features with linear regression from the top 100 board games (excluding the following variables: `ID`, `Name`, `Users_Rated`, and `BGG_Rank`).
+
+# Process
+
+## 1. Cleaning Up The Integer Variables In The Data Set
+
+### a. Removing ï..ID (BoardGamesGeek ID) column
+
+I removed the BoardGamesGeek ID column because the numbers only represent the call number of the board games and has no significance in my tasks, therefore, I will remove them to make my data set smaller and easier to navigate. 
+
+```{r}
+board_games1 <- board_games %>%
+  select(-ï..ID)
+```
+
+### b. Replacing all "/" with "," in `Mechanics` variable
+
+It turns out that in `Mechanics`, some of the mechanics were split by forward slashes instead of commas, so to convert all to a common ground, I replaced all forward slashes to commas. 
+
+```{r}
+board_games1$Mechanics <- str_replace_all(board_games1$Mechanics," /",",")
+head(board_games1, 3)
+```
+
+### Challenge
+
+When I was going through the data set, I realized that some cells where left blank instead of containing NA. So, I tried to replace the blank cells with NA, but I wasn't able to find a way to do that. I tried using str_detect, but that couldn't detect the blank cells. However, I found a solution in where I could detect the blank cells through the usage of the calling up the columns. 
+
+### c. Replacing blank cells with NA in `Domains` variable
+
+```{r}
+board_games1[664,]
+```
+
+In `Domains` of `board_games1[664,]`, it is blank. 
+
+```{r}
+bg_domains_na <- board_games1$Domains
+bg_domains_na[bg_domains_na == ""] <- NA
+
+bg_domains_na[664]
+```
+
+### d. Replacing blank cells with NA in `Mechanics` variable
+
+```{r}
+board_games1[1060,]
+```
+
+In `Mechanics` of `board_games[1060,]`, it is blank.
+
+```{r}
+bg_mechanics_na <- board_games1$Mechanics
+bg_mechanics_na[bg_mechanics_na == ""] <- NA
+
+bg_mechanics_na[1060]
+```
+
+### e. Adding `bg_domains_na` and `bg_mechanics_na` to `board_games2`
+
+```{r}
+board_games2 <- board_games1 %>%
+  select(-Mechanics, -Domains) %>%
+  mutate(Mechanics = bg_mechanics_na) %>%
+  mutate(Domains = bg_domains_na)
+colnames(board_games2) <- c("Name","Year_Published","Minimum_Players","Maximum_Players","Play_Time","Minimum_Age","Users_Rating","Average_Rating","BGG_Rank","Average_Complexity","Owned_Users","Mechanics","Domains")
+
+board_games2[664,]
+board_games2[1060,]
+```
+
+## 2. Performing Calculations 
+
+### a. Adding `Age of Game` by taking the highest year - `Year Published` to `board_games3`
+
+Since there was a column that has the board games' published years, I want to make a column that will display how old they are. 
+
+```{r}
+max(board_games2$Year_Published,na.rm = TRUE)
+
+Age_of_Game <- 2022 - board_games2$Year_Published
+board_games3 <- board_games2 %>%
+add_column(Age_of_Game, .after = 2)
+head(board_games3, 3)
+```
+
+### b. Finding Q1, Q3, and IQR of each integer variable to take out outliers
+
+Before I plot my numeric variables, I want to determine and find all the outliers. 
+
+```{r}
+summary(board_games3)
+```
+
+```{r}
+Q1_YB <- quantile(board_games3$Year_Published, .25, na.rm = TRUE)
+Q3_YB <- quantile(board_games3$Year_Published, .75, na.rm = TRUE)
+IQR_YB <- IQR(board_games3$Year_Published, na.rm = TRUE)
+
+Q1_AoG <- quantile(board_games3$Age_of_Game, .25, na.rm = TRUE)
+Q3_AoG <- quantile(board_games3$Age_of_Game, .75, na.rm = TRUE)
+IQR_AoG <- IQR(board_games3$Age_of_Game, na.rm = TRUE)
+
+Q1_MiP <- quantile(board_games3$Minimum_Players, .25)
+Q3_MiP <- quantile(board_games3$Minimum_Players, .75)
+IQR_MiP <- IQR(board_games3$Minimum_Players)
+
+Q1_MaP <- quantile(board_games3$Maximum_Players, .25)
+Q3_MaP <- quantile(board_games3$Maximum_Players, .75)
+IQR_MaP <- IQR(board_games3$Maximum_Players)
+
+Q1_PT <- quantile(board_games3$Play_Time, .25)
+Q3_PT <- quantile(board_games3$Play_Time, .75)
+IQR_PT <- IQR(board_games3$Play_Time)
+
+Q1_MA <- quantile(board_games3$Minimum_Age, .25)
+Q3_MA <- quantile(board_games3$Minimum_Age, .75)
+IQR_MA <- IQR(board_games3$Minimum_Age)
+
+Q1_UR <- quantile(board_games3$Users_Rating, .25)
+Q3_UR <- quantile(board_games3$Users_Rating, .75)
+IQR_UR <- IQR(board_games3$Users_Rating)
+
+Q1_AC <- quantile(board_games3$Average_Complexity, .25)
+Q3_AC <- quantile(board_games3$Average_Complexity, .75)
+IQR_AC <- IQR(board_games3$Average_Complexity)
+
+Q1_OU <- quantile(board_games3$Owned_Users, .25, na.rm = TRUE)
+Q3_OU <- quantile(board_games3$Owned_Users, .75, na.rm = TRUE)
+IQR_OU <- IQR(board_games3$Owned_Users, na.rm = TRUE)
+
+board_games4 <- board_games3 %>%
+  subset(Year_Published >= (Q1_YB - 1.5*IQR_YB) & Year_Published <= (Q3_YB + 1.5*IQR_YB)) %>%
+  subset(Age_of_Game >= (Q1_AoG - 1.5*IQR_AoG) & Age_of_Game <= (Q3_AoG + 1.5*IQR_AoG)) %>%
+  subset(Minimum_Players >= (Q1_MiP - 1.5*IQR_MiP) & Minimum_Players <= (Q3_MiP + 1.5*IQR_MiP)) %>%
+  subset(Maximum_Players >= (Q1_MaP - 1.5*IQR_MaP) & Maximum_Players <= (Q3_MaP + 1.5*IQR_MaP)) %>%
+  subset(Play_Time >= (Q1_PT - 1.5*IQR_PT) & Play_Time <= (Q3_PT + 1.5*IQR_PT)) %>%
+  subset(Minimum_Age >= (Q1_MA - 1.5*IQR_MA) & Minimum_Age <= (Q3_MA + 1.5*IQR_MA)) %>%
+  subset(Users_Rating >= (Q1_UR - 1.5*IQR_UR) & Users_Rating <= (Q3_UR + 1.5*IQR_UR)) %>%
+  subset(Average_Complexity >= (Q1_AC - 1.5*IQR_AC) & Average_Complexity <= (Q3_AC + 1.5*IQR_AC)) %>%
+  subset(Owned_Users >= (Q1_OU - 1.5*IQR_OU) & Owned_Users <= (Q3_OU + 1.5*IQR_OU))
+```
+
+## 3. Plotting Data On ggplot
+
+### Plotting `Average_Rating` vs. every other integer variable
+
+The first, second, and last plot excluded NA values. The plot on the left has the outliers in red and the plot on the right has removed the outliers. 
+
+```{r}
+YB_with <- na.omit(board_games3) %>%
+  ggplot(aes(Year_Published, Average_Rating, color = (Year_Published >= (Q1_YB - 1.5*IQR_YB) & Year_Published <= (Q3_YB + 1.5*IQR_YB)))) +
+  geom_point(alpha = 0.3, na.rm = TRUE) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Year_Published With Outliers") 
+
+AoG_with <- na.omit(board_games3) %>%
+  ggplot(aes(Age_of_Game, Average_Rating, color = (Age_of_Game >= (Q1_AoG - 1.5*IQR_AoG) & Age_of_Game <= (Q3_AoG + 1.5*IQR_AoG)))) +
+  geom_point(alpha = 0.3, na.rm = TRUE) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Age_of_Game With Outliers")
+
+MiP_with <- na.omit(board_games3) %>%
+  ggplot(aes(Minimum_Players, Average_Rating, color = (Minimum_Players >= (Q1_MiP - 1.5*IQR_MiP) & Minimum_Players <= (Q3_MiP + 1.5*IQR_MiP)))) +
+  geom_point(alpha = 0.3) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Minimum_Players With Outliers")
+
+MaP_with <- na.omit(board_games3) %>%
+  ggplot(aes(Maximum_Players, Average_Rating, color = (Maximum_Players >= (Q1_MaP - 1.5*IQR_MaP) & Maximum_Players <= (Q3_MaP + 1.5*IQR_MaP)))) +
+  geom_point(alpha = 0.3) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Maximum_Players With Outliers")
+
+PT_with <- na.omit(board_games3) %>%
+  ggplot(aes(Play_Time, Average_Rating, color = (Play_Time >= (Q1_PT - 1.5*IQR_PT) & Play_Time <= (Q3_PT + 1.5*IQR_PT)))) +
+  geom_point(alpha = 0.3) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Play_Time With Outliers")
+
+MA_with <- na.omit(board_games3) %>%
+  ggplot(aes(Minimum_Age, Average_Rating, color = (Minimum_Age >= (Q1_MA - 1.5*IQR_MA) & Minimum_Age <= (Q3_MA + 1.5*IQR_MA)))) +
+  geom_point(alpha = 0.3) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Minimum_Age With Outliers")
+
+UR_with <- na.omit(board_games3) %>%
+  ggplot(aes(Users_Rating, Average_Rating, color = (Users_Rating >= (Q1_UR - 1.5*IQR_UR) & Users_Rating <= (Q3_UR + 1.5*IQR_UR)))) +
+  geom_point(alpha = 0.3) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Users_Rating With Outliers")
+
+AC_with <- na.omit(board_games3) %>%
+  ggplot(aes(Average_Complexity, Average_Rating, color = (Average_Complexity >= (Q1_AC - 1.5*IQR_AC) & Average_Complexity <= (Q3_AC + 1.5*IQR_AC)))) +
+  geom_point(alpha = 0.3) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Average_Complexity With Outliers")
+
+OU_with <- na.omit(board_games3) %>%
+  ggplot(aes(Owned_Users, Average_Rating, color = (Owned_Users >= (Q1_OU - 1.5*IQR_OU) & Owned_Users <= (Q3_OU + 1.5*IQR_OU)))) +
+  geom_point(alpha = 0.3, na.rm = TRUE) + 
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Outliers","Not Outliers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Owned_Users With Outliers")
+
+YB_without <- board_games4 %>%
+  ggplot(aes(Year_Published, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Year_Published Without Outliers")
+
+AoG_without <- board_games4 %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Age_of_Game Without Outliers")
+
+MiP_without <- board_games4 %>%
+  ggplot(aes(Minimum_Players, Average_Rating)) +
+  geom_point(alpha = 0.3, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Minimum_Players With Outliers")
+
+MaP_without <- board_games4 %>%
+  ggplot(aes(Maximum_Players, Average_Rating)) +
+  geom_point(alpha = 0.3, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Maximum_Players Without Outliers")
+
+PT_without <- board_games4 %>%
+  ggplot(aes(Play_Time, Average_Rating)) +
+  geom_point(alpha = 0.3, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Play_Time Without Outliers")
+
+MA_without <- board_games4 %>%
+  ggplot(aes(Minimum_Age, Average_Rating)) +
+  geom_point(alpha = 0.3, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Minimum_Age Without Outliers")
+
+UR_without <- board_games4 %>%
+  ggplot(aes(Users_Rating, Average_Rating)) +
+  geom_point(alpha = 0.3, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Users_Rating Without Outliers")
+
+AC_without <- board_games4 %>%
+  ggplot(aes(Average_Complexity, Average_Rating)) +
+  geom_point(alpha = 0.3, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Average_Complexity Without Outliers")
+
+OU_without <- board_games4 %>%
+  ggplot(aes(Owned_Users, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,2)) +
+  ggtitle("Owned_Users Without Outliers")
+```
+
+```{r}
+YB_with + YB_without
+```
+
+```{r}
+AoG_with + AoG_without
+```
+
+```{r}
+MiP_with + MiP_without
+```
+
+```{r}
+MaP_with + MaP_without
+```
+
+```{r}
+PT_with + PT_without
+```
+
+```{r}
+MA_with + MA_without
+```
+
+```{r}
+UR_with + UR_without
+```
+
+```{r}
+AC_with + AC_without
+```
+
+```{r}
+OU_with + OU_without
+```
+
+### Key Take Aways
+
+1. There is a relationship between `Year_Published` and `Age_of_Game`, where the closer the year published is to 2022, the younger the game is. 
+
+2. The `User_Rating` and `Owned_Users` plots have very similar shapes. In general, people would vote to rate and own the board game if they like playing it.
+
+## 4. Cleaning Up The Character Variables In The Data Set
+
+### Challenges
+
+When I first started finding the unique mechanics and domains, I wasn't able to find a solution to extract all the unique values from the entire data set. This was because there would be some mechanics and domains that were used multiple times but ordered in different locations. However, I found a solution by using str_count to count the maximum amount of values in a row. Afterwards, I created columns equal to the maximum amount. I then used separate to put each mechanic and domain in their own column and inputted NA to columns that have less than the maximum amount. 
+
+### a. Organize `Mechanics` and `Domains` variables
+
+```{r}
+bg_mechanics <- board_games3 %>%
+  select(Mechanics)
+
+mechanics_count <- str_count(bg_mechanics$Mechanics, pattern = ",")
+max(mechanics_count, na.rm = TRUE)
+```
+
+There are a maximum of 23 mechanics in a board game.
+
+```{r}
+mechanics_column_names <- c("Mech_1","Mech_2","Mech_3","Mech_4","Mech_5","Mech_6","Mech_7","Mech_8","Mech_9","Mech_10",
+                  "Mech_11","Mech_12","Mech_13","Mech_14","Mech_15","Mech_16","Mech_17","Mech_18","Mech_19","Mech_20",
+                  "Mech_21","Mech_22","Mech_23")
+
+bg_sorted_mechanics <- bg_mechanics %>%
+  separate(Mechanics, mechanics_column_names, ", ")
+```
+
+```{r}
+bg_domains <- board_games3 %>%
+  select(Domains)
+
+domains_count <- str_count(bg_domains$Domains, pattern = ", ")
+max(domains_count, na.rm = TRUE)
+```
+
+There are a maximum of 3 domains in a board game. 
+
+```{r}
+domains_column_names <- c("Domain_1","Domain_2","Domain_3")
+
+bg_sorted_domains <- bg_domains %>%
+  separate(Domains, domains_column_names, ", ")
+```
+
+### b. Finidng all unique values in `Mechanics` and `Domains` variables
+
+I also wanted to find out how many times each mechanic and domain was used, so I counted them. 
+
+```{r}
+unique_mechanics_group <- data.frame(mech = c(
+  bg_sorted_mechanics$Mech_1,
+  bg_sorted_mechanics$Mech_2,
+  bg_sorted_mechanics$Mech_3,
+  bg_sorted_mechanics$Mech_4,
+  bg_sorted_mechanics$Mech_5,
+  bg_sorted_mechanics$Mech_6,
+  bg_sorted_mechanics$Mech_7,
+  bg_sorted_mechanics$Mech_8,
+  bg_sorted_mechanics$Mech_9,
+  bg_sorted_mechanics$Mech_10,
+  bg_sorted_mechanics$Mech_11,
+  bg_sorted_mechanics$Mech_12,
+  bg_sorted_mechanics$Mech_13,
+  bg_sorted_mechanics$Mech_14,
+  bg_sorted_mechanics$Mech_15,
+  bg_sorted_mechanics$Mech_16,
+  bg_sorted_mechanics$Mech_17,
+  bg_sorted_mechanics$Mech_18,
+  bg_sorted_mechanics$Mech_19,
+  bg_sorted_mechanics$Mech_20,
+  bg_sorted_mechanics$Mech_21,
+  bg_sorted_mechanics$Mech_22,
+  bg_sorted_mechanics$Mech_23))
+
+unique_mechanics <- unique_mechanics_group$mech %>%
+  sort() %>%
+  unique()
+
+unique_mechanics <- data.frame(unique_mechanics)
+
+nrow(unique_mechanics)
+
+each_mechanics_count <- unique_mechanics_group %>%
+  group_by(mech) %>%
+  tally() %>%
+  rename(count = n)
+
+each_mechanics_count <- na.omit(each_mechanics_count)
+
+each_mechanics_count <- each_mechanics_count[with(each_mechanics_count, order(count)),]
+
+head(each_mechanics_count, 5)
+tail(each_mechanics_count, 5)
+```
+
+```{r}
+unique_domains_group <- data.frame(domain = c(
+  bg_sorted_domains$Domain_1,
+  bg_sorted_domains$Domain_2,
+  bg_sorted_domains$Domain_3))
+
+unique_domains <- unique_domains_group$domain %>%
+  sort() %>%
+  unique()
+
+unique_domains <- data.frame(unique_domains)
+
+nrow(unique_domains)
+
+each_domains_count <- unique_domains_group %>%
+  group_by(domain) %>%
+  tally() %>%
+  rename(count = n)
+
+each_domains_count <- na.omit(each_domains_count)
+
+each_domains_count <- each_domains_count[with(each_domains_count, order(count)),]
+
+head(each_domains_count, 4)
+tail(each_domains_count, 4)
+```
+
+I added the counts of the mechanics and domains into `board_games3`.
+
+```{r}
+board_games3 <- board_games3 %>%
+  mutate(Num_of_Mechanics = rowSums(!is.na(bg_sorted_mechanics)),
+         Num_of_Domains = rowSums(!is.na(bg_sorted_domains)))
+
+board_games4 <- board_games3 %>%
+  subset(Year_Published >= (Q1_YB - 1.5*IQR_YB) & Year_Published <= (Q3_YB + 1.5*IQR_YB)) %>%
+  subset(Age_of_Game >= (Q1_AoG - 1.5*IQR_AoG) & Age_of_Game <= (Q3_AoG + 1.5*IQR_AoG)) %>%
+  subset(Minimum_Players >= (Q1_MiP - 1.5*IQR_MiP) & Minimum_Players <= (Q3_MiP + 1.5*IQR_MiP)) %>%
+  subset(Maximum_Players >= (Q1_MaP - 1.5*IQR_MaP) & Maximum_Players <= (Q3_MaP + 1.5*IQR_MaP)) %>%
+  subset(Play_Time >= (Q1_PT - 1.5*IQR_PT) & Play_Time <= (Q3_PT + 1.5*IQR_PT)) %>%
+  subset(Minimum_Age >= (Q1_MA - 1.5*IQR_MA) & Minimum_Age <= (Q3_MA + 1.5*IQR_MA)) %>%
+  subset(Average_Complexity >= (Q1_AC - 1.5*IQR_AC) & Average_Complexity <= (Q3_AC + 1.5*IQR_AC)) %>%
+  subset(Owned_Users >= (Q1_OU - 1.5*IQR_OU) & Owned_Users <= (Q3_OU + 1.5*IQR_OU))
+```
+
+### Key Take Aways
+
+1. There are a total of 191 unique mechanics and 8 unique domains in this data set. 
+
+2. Dice Rolling, Hand Management, Set Collection, Variable Player Powers, and Hexagon Grid are the top 5 frequently used mechanics in order. While Auction: English, Auction: Dexterity, Auction: Dutch Priority, Selection Order Bid, and Passed Action Token are the bottom 5 frequently used mechanics in order.
+
+3. Wargames, Strategy Games, Family Games, and Thematic Games are the top 4 frequently used domains in order. While Customizable Games, Party Games, Children's Games, and Abstract Games are the bottom 4 frequently used domains in order.
+
+## 5. Answering Task #1
+
+### What is the average `Average_Rating` for the top 4 most frequently used `Domains` and `Mechanics`? 
+
+### a. Plotting `Average_Rating` vs `Age_of_Game` with the points being colored based on `Domains`
+
+I created empty data frames then used a loop to detect if there was the specific domain or mechanic. If there was, then it would input 1 in the data frame and 0, if not. 
+
+```{r}
+Domain_War <- vector(mode = "numeric", length = 20343)
+Domain_War <- data.frame(Domain_War)
+
+Domain_Strategy <- vector(mode = "numeric", length = 20343)
+Domain_Strategy <- data.frame(Domain_Strategy)
+
+Domain_Family <- vector(mode = "numeric", length = 20343)
+Domain_Family <- data.frame(Domain_Family)
+
+Domain_Thematic <- vector(mode = "numeric", length = 20343)
+Domain_Thematic <- data.frame(Domain_Thematic)
+
+for(x in 1:20343) {
+  war <- (sum(str_detect(bg_sorted_domains[x,], pattern = "Wargames"), na.rm = TRUE))
+  Domain_War[x,] <- war
+  strategy <- (sum(str_detect(bg_sorted_domains[x,], pattern = "Strategy Games"), na.rm = TRUE))
+  Domain_Strategy[x,] <- strategy
+  family <- (sum(str_detect(bg_sorted_domains[x,], pattern = "Family Games"), na.rm = TRUE))
+  Domain_Family[x,] <- family
+  thematic <- (sum(str_detect(bg_sorted_domains[x,], pattern = "Thematic Games"), na.rm = TRUE))
+  Domain_Thematic[x,] <- thematic
+}
+
+board_games5 <- board_games3 %>%
+  select(-Domains) %>%
+  mutate(Domain_War = Domain_War,
+         Domain_Strategy = Domain_Strategy,
+         Domain_Family = Domain_Family,
+         Domain_Thematic = Domain_Thematic)
+
+board_games5$Domain_War <- unlist(board_games5$Domain_War)
+board_games5$Domain_Strategy <- unlist(board_games5$Domain_Strategy)
+board_games5$Domain_Family <- unlist(board_games5$Domain_Family)
+board_games5$Domain_Thematic <- unlist(board_games5$Domain_Thematic)
+
+board_games6 <- board_games5 %>%
+  subset(Year_Published >= (Q1_YB - 1.5*IQR_YB) & Year_Published <= (Q3_YB + 1.5*IQR_YB)) %>%
+  subset(Age_of_Game >= (Q1_AoG - 1.5*IQR_AoG) & Age_of_Game <= (Q3_AoG + 1.5*IQR_AoG)) %>%
+  subset(Minimum_Players >= (Q1_MiP - 1.5*IQR_MiP) & Minimum_Players <= (Q3_MiP + 1.5*IQR_MiP)) %>%
+  subset(Maximum_Players >= (Q1_MaP - 1.5*IQR_MaP) & Maximum_Players <= (Q3_MaP + 1.5*IQR_MaP)) %>%
+  subset(Play_Time >= (Q1_PT - 1.5*IQR_PT) & Play_Time <= (Q3_PT + 1.5*IQR_PT)) %>%
+  subset(Minimum_Age >= (Q1_MA - 1.5*IQR_MA) & Minimum_Age <= (Q3_MA + 1.5*IQR_MA)) %>%
+  subset(Average_Complexity >= (Q1_AC - 1.5*IQR_AC) & Average_Complexity <= (Q3_AC + 1.5*IQR_AC)) %>%
+  subset(Owned_Users >= (Q1_OU - 1.5*IQR_OU) & Owned_Users <= (Q3_OU + 1.5*IQR_OU))
+```
+
+```{r}
+AoG_domainwar_without <- na.omit(board_games6) %>% 
+  filter(Domain_War == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(na.rm = TRUE, alpha = 0.3, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Domain: War")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Wargames")
+
+AoG_domainstrategy_without <- na.omit(board_games6) %>% 
+  filter(Domain_Strategy == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Domain: Strategy")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Strategy Games") 
+
+AoG_domainfamily_without <- na.omit(board_games6) %>% 
+  filter(Domain_Family == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Domain: Family")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Family Games") 
+
+AoG_domainthematic_without <- na.omit(board_games6) %>% 
+  filter(Domain_Thematic == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Domain: Thematic")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Thematic Games") 
+
+AoG_domainwar_without + AoG_domainstrategy_without
+AoG_domainfamily_without + AoG_domainthematic_without
+```
+
+```{r}
+AoG_domainwar %>%
+  summarize(Avg_WG = mean(Average_Rating),
+            Max_WG = max(Average_Rating),
+            Min_WG = min(Average_Rating))
+
+AoG_domainstrategy %>%
+  summarize(Avg_SG = mean(Average_Rating),
+            Max_SG = max(Average_Rating),
+            Min_SG = min(Average_Rating))
+
+AoG_domainfamily %>%
+  summarize(Avg_FG = mean(Average_Rating),
+            Max_FG = max(Average_Rating),
+            Min_FG = min(Average_Rating))
+
+AoG_domainthematic %>%
+  summarize(Avg_TG = mean(Average_Rating),
+            Max_TG = max(Average_Rating),
+            Min_TG = min(Average_Rating))
+```
+
+### b. Plotting `Average_Rating` vs `Age_of_Game` with the points being colored based on `Mechanics`
+
+```{r}
+Mech_DR <- vector(mode = "numeric", length = 20343)
+Mech_DR <- data.frame(Mech_DR)
+
+Mech_HM <- vector(mode = "numeric", length = 20343)
+Mech_HM <- data.frame(Mech_HM)
+
+Mech_SC <- vector(mode = "numeric", length = 20343)
+Mech_SC <- data.frame(Mech_SC)
+
+Mech_VPP <- vector(mode = "numeric", length = 20343)
+Mech_VPP <- data.frame(Mech_VPP)
+
+for(x in 1:20343) {
+  DR <- (sum(str_detect(bg_sorted_mechanics[x,], pattern = "Dice Rolling"), na.rm = TRUE))
+  Mech_DR[x,] <- DR
+  HM <- (sum(str_detect(bg_sorted_mechanics[x,], pattern = "Hand Management"), na.rm = TRUE))
+  Mech_HM[x,] <- HM
+  SC <- (sum(str_detect(bg_sorted_mechanics[x,], pattern = "Set Collection"), na.rm = TRUE))
+  Mech_SC[x,] <- SC
+  VPP <- (sum(str_detect(bg_sorted_mechanics[x,], pattern = "Variable Player Powers"), na.rm = TRUE))
+  Mech_VPP[x,] <- VPP
+}
+
+board_games7 <- board_games3 %>%
+  select(-Mechanics) %>%
+  mutate(Mech_DR = Mech_DR,
+         Mech_HM = Mech_HM,
+         Mech_SC = Mech_SC,
+         Mech_VPP = Mech_VPP)
+
+board_games7$Mech_DR <- unlist(board_games7$Mech_DR)
+board_games7$Mech_HM <- unlist(board_games7$Mech_HM)
+board_games7$Mech_SC <- unlist(board_games7$Mech_SC)
+board_games7$Mech_VPP <- unlist(board_games7$Mech_VPP)
+
+board_games8 <- board_games7 %>%
+  subset(Year_Published >= (Q1_YB - 1.5*IQR_YB) & Year_Published <= (Q3_YB + 1.5*IQR_YB)) %>%
+  subset(Age_of_Game >= (Q1_AoG - 1.5*IQR_AoG) & Age_of_Game <= (Q3_AoG + 1.5*IQR_AoG)) %>%
+  subset(Minimum_Players >= (Q1_MiP - 1.5*IQR_MiP) & Minimum_Players <= (Q3_MiP + 1.5*IQR_MiP)) %>%
+  subset(Maximum_Players >= (Q1_MaP - 1.5*IQR_MaP) & Maximum_Players <= (Q3_MaP + 1.5*IQR_MaP)) %>%
+  subset(Play_Time >= (Q1_PT - 1.5*IQR_PT) & Play_Time <= (Q3_PT + 1.5*IQR_PT)) %>%
+  subset(Minimum_Age >= (Q1_MA - 1.5*IQR_MA) & Minimum_Age <= (Q3_MA + 1.5*IQR_MA)) %>%
+  subset(Average_Complexity >= (Q1_AC - 1.5*IQR_AC) & Average_Complexity <= (Q3_AC + 1.5*IQR_AC)) %>%
+  subset(Owned_Users >= (Q1_OU - 1.5*IQR_OU) & Owned_Users <= (Q3_OU + 1.5*IQR_OU))
+```
+
+```{r}
+AoG_mechdr_without <- na.omit(board_games8) %>% 
+  filter(Mech_DR == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Mechanic: Dice Rolling")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Dice Rolling") 
+
+AoG_mechhm_without <- na.omit(board_games8) %>% 
+  filter(Mech_HM == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Mechanic: Hand Management")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Hand Management") 
+
+AoG_mechsc_without <- na.omit(board_games8) %>% 
+  filter(Mech_SC == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Mechanic: Set Collection")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Set Collection") 
+
+AoG_mechvpp_without <- na.omit(board_games8) %>% 
+  filter(Mech_VPP == 1) %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(alpha = 0.3, na.rm = TRUE, color = "#55CCCC") +
+  theme(legend.position = "bottom") +
+  scale_colour_discrete(name = "", labels = c("Mechanic: Variable Player Powers")) +
+  coord_cartesian(ylim = c(0,10)) +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  ggtitle("Age_of_Game For Var Player Powers") 
+
+AoG_mechdr_without + AoG_mechhm_without
+AoG_mechsc_without + AoG_mechvpp_without
+```
+
+```{r}
+AoG_mechdr %>%
+  summarize(Avg_DR = mean(Average_Rating),
+            Max_DR = max(Average_Rating),
+            Min_DR = min(Average_Rating))
+
+AoG_mechhm %>%
+  summarize(Avg_HM = mean(Average_Rating),
+            Max_Hm = max(Average_Rating),
+            Min_HM = min(Average_Rating)) 
+
+AoG_mechsc %>%
+  summarize(Avg_SC = mean(Average_Rating),
+            Max_SC = max(Average_Rating),
+            Min_SC = min(Average_Rating))
+
+AoG_mechvpp %>%
+  summarize(Avg_VPP = mean(Average_Rating),
+            Max_VPP = max(Average_Rating),
+            Min_VPP = min(Average_Rating))
+```
+
+### Answer: 
+
+From highest to lowest `Average_Rating` in `Domains`, "Wargames" has an average of 6.65, "Strategy Games" has an average of 6.63, "Thematic Games" has an average of 6.30, and "Family Games" has an average of 6.23.
+
+From highest to lowest `Average_Rating` in `Mechanics`, "Variable Player Powers" has an average of 6.70, "Dice Rolling" has an average of 6.38, "Hand Management" has an average of 6.37, and "Set Collection" has an average of 6.16.
+
+### Take Aways
+
+1. From the 4 most frequently used domains, the domain "Wargames" has the highest average and maximum `Average_Rating`. The domain "Thematic Games" has the lowest minimum `Average_Rating`.
+
+2. From the 4 most frequently used mechanics, the mechanic "Variable Player Powers" has the highest average and maximum `Average_Rating`. The mechanic "Dice Rolling" has the lowest minimum `Average_Rating`. 
+
+3. By looking at the `Domain` plots, "Wargames" is a popular domain to use to make board games throughout the past 40 years. 
+
+4. By looking at the `Mechanic` plots, "Dice Rolling" is a popular mechanic to use to make board games throughout the past 40 years. The other 3 most frequently used mechanics have been used more in the past 20 years. 
+
+## Answering Task #2
+
+### What commonalities do the most successful (top 100) board games have? 
+
+I used the websites ranking to find the top 100 board games. Then did the same process I did when finding all the unique mechanics and domains.
+
+```{r}
+top100_bg <- board_games3 %>%
+  mutate(bg_sorted_mechanics, bg_sorted_domains) %>%
+  top_n(-100, BGG_Rank) 
+
+top100_mech <- top100_bg %>%
+  select(Mech_1,
+         Mech_2,
+         Mech_3,
+         Mech_4,
+         Mech_5,
+         Mech_6,
+         Mech_7,
+         Mech_8,
+         Mech_9,
+         Mech_10,
+         Mech_11,
+         Mech_12,
+         Mech_13,
+         Mech_14,
+         Mech_15,
+         Mech_16,
+         Mech_17,
+         Mech_18,
+         Mech_19,
+         Mech_20,
+         Mech_21,
+         Mech_22,
+         Mech_23)
+
+top100_domain <- top100_bg %>%
+  select(Domain_1,
+         Domain_2,
+         Domain_3)
+  
+top100_all_mech <- data.frame(mech = c(
+  top100_bg$Mech_1,
+  top100_bg$Mech_2,
+  top100_bg$Mech_3,
+  top100_bg$Mech_4,
+  top100_bg$Mech_5,
+  top100_bg$Mech_6,
+  top100_bg$Mech_7,
+  top100_bg$Mech_8,
+  top100_bg$Mech_9,
+  top100_bg$Mech_10,
+  top100_bg$Mech_11,
+  top100_bg$Mech_12,
+  top100_bg$Mech_13,
+  top100_bg$Mech_14,
+  top100_bg$Mech_15,
+  top100_bg$Mech_16,
+  top100_bg$Mech_17,
+  top100_bg$Mech_18,
+  top100_bg$Mech_19,
+  top100_bg$Mech_20,
+  top100_bg$Mech_21,
+  top100_bg$Mech_22,
+  top100_bg$Mech_23
+))
+
+top100_all_domain <- data.frame(domain = c(
+  top100_bg$Domain_1,
+  top100_bg$Domain_2,
+  top100_bg$Domain_3
+))
+
+top100_unique_mech <- top100_all_mech$mech %>%
+  sort() %>%
+  unique()
+
+top100_unique_mech <- data.frame(top100_unique_mech)
+
+top100_mech_count <- top100_all_mech %>%
+  group_by(mech) %>%
+  tally() %>%
+  rename(count = n)
+
+top100_mech_count <- na.omit(top100_mech_count)
+
+top100_unique_domain <- top100_all_domain$domain %>%
+  sort() %>%
+  unique()
+
+top100_unique_domain <- data.frame(top100_unique_domain)
+
+top100_domain_count <- top100_all_domain %>%
+  group_by(domain) %>%
+  tally() %>%
+  rename(count = n)
+
+top100_domain_count <- na.omit(top100_domain_count)
+```
+
+```{r}
+t100_mech <- top100_mech_count %>%
+  filter(count > 20) %>%
+  ggplot(aes(mech, count)) +
+  geom_point(size = 3, color = "#55CCCC") +
+  theme(axis.text.x = element_text(angle = 75, vjust = 1, hjust=1)) +
+  ggtitle("10 Mechanics in top 100")
+
+t100_domain <- top100_domain_count %>%
+  ggplot(aes(domain, count)) +
+  geom_point(size = 3, color = "#55CCCC") +
+  theme(axis.text.x = element_text(angle = 75, vjust = 1, hjust=1)) +
+  ggtitle("7 Domains in top 100")
+```
+
+```{r}
+t100_mech + t100_domain
+```
+
+```{r}
+t100_MiP <- top100_bg %>%
+  ggplot(aes(Minimum_Players)) +
+  geom_bar(fill = "#55CCCC")
+
+t100_MaP <- top100_bg %>%
+  ggplot(aes(Maximum_Players)) +
+  geom_bar(fill = "#55CCCC")
+
+t100_PT <- top100_bg %>%
+  ggplot(aes(Play_Time)) +
+  geom_histogram(fill = "#55CCCC")
+
+t100_AC <- top100_bg %>%
+  ggplot(aes(Average_Complexity)) +
+  geom_histogram(binwidth = 0.5, fill = "#55CCCC")
+```
+
+```{r}
+t100_MiP + t100_MaP
+```
+
+```{r}
+t100_PT + t100_AC
+```
+
+
+### Answer: 
+
+In the top 100 board games, almost 50% of the board games incorporated "Hand Management" and "Variable Player Powers". While, more than 75% of the board games incorporated the domain of "Strategy Games".
+
+Most of the top 100 board games, have a minimum of 2 players and a maximum of 4 players. Most of these games are made to play for more than 4 people. 
+
+The top 100 board games, seem to mostly last under 200 minutes.
+
+The average complexity of the top 100 board games are centered around 3.5. 
+
+## Answering Task #3
+
+### Create a line that can predict a board game `Average_Rating` based on its features with linear regression from the top 100 board games (excluding the following variables: ID, Name, Users_Rated, and BGG_Rank).
+
+### a. Finding Q1, Q3, and IQR of each integer variable to take out outliers
+
+```{r}
+t100_Q1_YB <- quantile(top100_bg$Year_Published, .25, na.rm = TRUE)
+t100_Q3_YB <- quantile(top100_bg$Year_Published, .75, na.rm = TRUE)
+t100_IQR_YB <- IQR(top100_bg$Year_Published)
+
+t100_Q1_AoG <- quantile(top100_bg$Age_of_Game, .25, na.rm = TRUE)
+t100_Q3_AoG <- quantile(top100_bg$Age_of_Game, .75, na.rm = TRUE)
+t100_IQR_AoG <- IQR(top100_bg$Age_of_Game)
+
+t100_Q1_MiP <- quantile(top100_bg$Minimum_Players, .25, na.rm = TRUE)
+t100_Q3_MiP <- quantile(top100_bg$Minimum_Players, .75, na.rm = TRUE)
+t100_IQR_MiP <- IQR(top100_bg$Minimum_Players)
+
+t100_Q1_MaP <- quantile(top100_bg$Maximum_Players, .25, na.rm = TRUE)
+t100_Q3_MaP <- quantile(top100_bg$Maximum_Players, .75, na.rm = TRUE)
+t100_IQR_MaP <- IQR(top100_bg$Maximum_Players)
+
+t100_Q1_PT <- quantile(top100_bg$Play_Time, .25, na.rm = TRUE)
+t100_Q3_PT <- quantile(top100_bg$Play_Time, .75, na.rm = TRUE)
+t100_IQR_PT <- IQR(top100_bg$Play_Time)
+
+t100_Q1_MA <- quantile(top100_bg$Minimum_Age, .25, na.rm = TRUE)
+t100_Q3_MA <- quantile(top100_bg$Minimum_Age, .75, na.rm = TRUE)
+t100_IQR_MA <- IQR(top100_bg$Minimum_Age)
+
+t100_Q1_AC <- quantile(top100_bg$Average_Complexity, .25, na.rm = TRUE)
+t100_Q3_AC <- quantile(top100_bg$Average_Complexity, .75, na.rm = TRUE)
+t100_IQR_AC <- IQR(top100_bg$Average_Complexity)
+
+t100_Q1_OU <- quantile(top100_bg$Owned_Users, .25, na.rm = TRUE)
+t100_Q3_OU <- quantile(top100_bg$Owned_Users, .75, na.rm = TRUE)
+t100_IQR_OU <- IQR(top100_bg$Owned_Users)
+
+t100_Q1_NoM <- quantile(top100_bg$Num_of_Mechanics, .25, na.rm = TRUE)
+t100_Q3_NoM <- quantile(top100_bg$Num_of_Mechanics, .75, na.rm = TRUE)
+t100_IQR_NoM <- IQR(top100_bg$Num_of_Mechanics)
+
+t100_Q1_NoD <- quantile(top100_bg$Num_of_Domains, .25, na.rm = TRUE)
+t100_Q3_NoD <- quantile(top100_bg$Num_of_Domains, .75, na.rm = TRUE)
+t100_IQR_NoD <- IQR(top100_bg$Num_of_Domains)
+
+top100_bg2 <- top100_bg %>%
+  subset(Year_Published >= (t100_Q1_YB - 1.5*t100_IQR_YB) & Year_Published <= (t100_Q3_YB + 1.5*t100_IQR_YB)) %>%
+  subset(Age_of_Game >= (t100_Q1_AoG - 1.5*t100_IQR_AoG) & Age_of_Game <= (t100_Q3_AoG + 1.5*t100_IQR_AoG)) %>%
+  subset(Minimum_Players >= (t100_Q1_MiP - 1.5*t100_IQR_MiP) & Minimum_Players <= (t100_Q3_MiP + 1.5*t100_IQR_MiP)) %>%
+  subset(Maximum_Players >= (t100_Q1_MaP - 1.5*t100_IQR_MaP) & Maximum_Players <= (t100_Q3_MaP + 1.5*t100_IQR_MaP)) %>%
+  subset(Play_Time >= (t100_Q1_PT - 1.5*t100_IQR_PT) & Play_Time <= (t100_Q3_PT + 1.5*t100_IQR_PT)) %>%
+  subset(Minimum_Age >= (t100_Q1_MA - 1.5*t100_IQR_MA) & Minimum_Age <= (t100_Q3_MA + 1.5*t100_IQR_MA)) %>%
+  subset(Average_Complexity >= (t100_Q1_AC - 1.5*t100_IQR_AC) & Average_Complexity <= (t100_Q3_AC + 1.5*t100_IQR_AC)) %>%
+  subset(Owned_Users >= (t100_Q1_OU - 1.5*t100_IQR_OU) & Owned_Users <= (t100_Q3_OU + 1.5*t100_IQR_OU)) %>%
+  subset(Num_of_Mechanics >= (t100_Q1_NoM - 1.5*t100_IQR_NoM) & Num_of_Mechanics <= (t100_Q3_NoM + 1.5*t100_IQR_NoM)) %>%
+  subset(Num_of_Domains >= (t100_Q1_NoD - 1.5*t100_IQR_NoD) & Num_of_Domains <= (t100_Q3_NoD + 1.5*t100_IQR_NoD))
+```
+
+### b. Finding the correlation coefficient of each integer variable
+
+```{r}
+cor(top100_bg2$Average_Rating, top100_bg2$Year_Published, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Age_of_Game, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Minimum_Players, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Maximum_Players, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Play_Time, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Minimum_Age, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Average_Complexity, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Owned_Users, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Num_of_Mechanics, use = "complete.obs") 
+cor(top100_bg2$Average_Rating, top100_bg2$Num_of_Domains, use = "complete.obs")
+```
+
+### c. The variables with correlation coefficient greater than 0.3 or less than -0.3 are used for the linear regression model
+
+```{r}
+lm_few1 <- lm(Average_Rating~Year_Published+Minimum_Players+Minimum_Age+Average_Complexity, top100_bg2)
+summary(lm_few1)
+```
+
+The variable `Year_Published` has three stars, `Average_Complexity` has two stars, `Minimum_Age` has one star, and `Minimum_Players` has zero stars. The variable with more stars represents that they play a significant role in predicting `Average_Rating`. Since `Minimum_Players` have no stars, it means that it doesn't play a significant role in predicting `Average_Rating`, thus it will be taken out. The multiple R-squared is 0.4832 and is far away from 1, which signals that this model doesn't really explain the data set well.
+
+```{r}
+lm_few2 <- lm(Average_Rating~Year_Published+Minimum_Age+Average_Complexity, top100_bg2)
+summary(lm_few2)
+```
+
+The variable `Year_Published` has three stars, `Average_Complexity` has two stars, and `Minimum_Age` has one star. The multiple R-squared is 0.4824 and is far away from 1, which signals that this model doesn't explain the data set well. 
+
+After a few trials, cubing the variables in this linear model was the best option to raise the multiple R-squared. 
+
+```{r}
+lm_few3 <- lm(Average_Rating~I(Year_Published^3)+I(Minimum_Age^3)+I(Average_Complexity^3), top100_bg2)
+summary(lm_few3)
+```
+
+The multiple R-squared is 0.4864, which is a little bit better than the previous two linear models, but it still signals that it doesn't explain the data set well. 
+
+### d. Creating a linear regression model with all variables
+
+```{r}
+lm_all1 <- lm(Average_Rating~Year_Published+Age_of_Game+Minimum_Players+Maximum_Players+Play_Time+Minimum_Age+Average_Complexity+Owned_Users+Num_of_Mechanics+Num_of_Domains, top100_bg2)
+summary(lm_all1)
+```
+
+The variable `Year_Published` has three stars, `Minimum_Age` and `Average_Complexity` have one star, `Owned_Users` has a period, and the rest of the variables don't have stars. The multiple R-squared is 0.5254, which signals that this linear model somewhat explains this data set well.
+
+```{r}
+lm_all2 <- lm(Average_Rating~I(log(Year_Published))+I(log(Age_of_Game))+I(log(Minimum_Players))+I(log(Maximum_Players))+I(log(Play_Time))+I(log(Minimum_Age))+I(log(Average_Complexity))+I(log(Owned_Users))+I(log(Num_of_Mechanics))+I(log(Num_of_Domains)), top100_bg2)
+summary(lm_all2)
+```
+
+The variables have been computed with logarithms. The variables `Age_of_Game` have two stars, `Average_Complexity`, `Owned_Users`, and `Num_of_Mechanics` have one star, and the rest of the variables don't have stars. The multiple R-squared is 0.5877, which is a lot higher than the previous linear models. 
+
+```{r}
+lm_all3 <- lm(Average_Rating~I(Year_Published^2)+I(Age_of_Game^2)+I(Minimum_Players^2)+I(Maximum_Players^2)+I(Play_Time^2)+I(Minimum_Age^2)+I(Average_Complexity^2)+I(Owned_Users^2)+I(Num_of_Mechanics^2)+I(Num_of_Domains^2), top100_bg2)
+summary(lm_all3)
+```
+
+After a few trials, the exponent of two was the best option for this linear model to raise the multiple R-squared. The variables `Year_Published` have three stars, `Age_of_Game` and `Average_Complexity` have two stars, `Minimum_Age` and `Owned_Users` has one star, and the rest of the variables don't have stars. The multiple R-squared is 0.5949 and it is bigger than the previous linear model by around 0.1, this linear model is somewhat better than the previous linear model at explaining this data set. With a few more trials, taking out variables that are not significant will decrease the multiple R-squared. However, `Num_of_Domains` gives out NA, thus will be taken out and it wouldn't affect the multiple R-squared.
+
+The equation of the regression line is:
+
+`Average_Rating` = -116.7 + 0.0000305 * (`Year_Published`^2) + 0.004276 * (`Age_of_Game`^2) + 0.02163 * (`Minimum_Players`^2) - 0.005185 * (`Maximum_Players`^2) + 0.00000231 * (`Play_Time`^2) + 0.002144 * (`Minimum_Age`^2) + 0.02323 * (`Average_Complexity`^2) + 0.00000000004794 * (`Owned_Users`^2) + 0.0001235 * (`Num_of_Mechanics`^2)
+
+If we increase `Year_Published` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.0000305
+If we increase `Age_of_Game` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.004276
+If we increase `Minimum_Players` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.02163
+If we increase `Maximum_Players` by 1 unit, while all other features are constant, the `Average_Rating` will decrease by 0.005185
+If we increase `Play_Time` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.00000231
+If we increase `Minimum_Age` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.002144
+If we increase `Average_Complexity` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.02323
+If we increase `Owned_Users` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.00000000004794
+If we increase `Num_of_Mechanics` by 1 unit, while all other features are constant, the `Average_Rating` will increase by 0.0001235
+
+```{r}
+top100_bg2 %>%
+  ggplot(aes(Year_Published, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Year_Published") 
+
+top100_bg2 %>%
+  ggplot(aes(Age_of_Game, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Age_of_Game")
+
+top100_bg2 %>%
+  ggplot(aes(Minimum_Players, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Minimum_Players")
+
+top100_bg2 %>%
+  ggplot(aes(Maximum_Players, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Maximum_Players")
+
+top100_bg2 %>%
+  ggplot(aes(Play_Time, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Play_Time")
+
+top100_bg2 %>%
+  ggplot(aes(Minimum_Age, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Minimum_Age")
+
+top100_bg2 %>%
+  ggplot(aes(Average_Complexity, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Average_Complexity")
+
+top100_bg2 %>%
+  ggplot(aes(Owned_Users, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Owned_Users")
+
+top100_bg2 %>%
+  ggplot(aes(Num_of_Mechanics, Average_Rating)) +
+  geom_point(color = "#55CCCC") +
+  coord_cartesian(ylim = c(7,10)) +
+  scale_y_continuous(breaks = seq(7,10,1)) +
+  ggtitle("Top 100 Board Games: Num_of_Mechanics")
+```
+
