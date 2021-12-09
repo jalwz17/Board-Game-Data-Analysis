@@ -33,3 +33,9 @@ I have identified my tasks:
 2. What commonalities do the most successful (top 100) board games have?
 
 3. Create a line that can predict a board game `Average_Rating` based on its features with linear regression from the top 100 board games (excluding the following variables: `ID`, `Name`, `Users_Rated`, and `BGG_Rank`).
+
+There are two files where:
+
+ - Board Games Data Analysis.Rmd is the file that I done my data analysis on.
+
+ - bgg_dataset.csv is the data set I downloaded from Kaggle.com.
